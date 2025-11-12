@@ -51,10 +51,165 @@ docker-compose up -d
 
 ### 4. Access Your Application
 
-- **Web UI**: https://ai.yourcompany.com
-- **Health Check**: https://ai.yourcompany.com/health
-- **Metrics**: https://ai.yourcompany.com/metrics (Prometheus format)
-- **API Docs**: https://ai.yourcompany.com/docs (Swagger UI)
+After deployment, the services will be available at:
+
+- **Frontend**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **Health Check**: http://localhost:8000/health
+- **Metrics**: http://localhost:8000/metrics (Prometheus format)
+- **API Docs**: http://localhost:8000/docs (Swagger UI)
+
+## Deployment Options
+
+### Option 1: Nginx Proxy Manager (NPM)
+
+Nginx Proxy Manager provides a simple web UI for managing reverse proxy and SSL certificates.
+
+#### Setup NPM
+```bash
+# Create a docker-compose.npm.yml
+cat > docker-compose.npm.yml << 'EOF'
+version: '3.8'
+services:
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    ports:
+      - "80:80"
+      - "81:81"
+      - "443:443"
+    volumes:
+      - npm-data:/data
+      - npm-ssl:/etc/letsencrypt
+    restart: unless-stopped
+
+volumes:
+  npm-data:
+  npm-ssl:
+EOF
+
+# Start NPM
+docker-compose -f docker-compose.npm.yml up -d
+```
+
+#### Configure NPM
+1. Access NPM web UI at http://your-server-ip:81
+2. Default login: admin@example.com / changeme
+3. Create a new proxy host:
+   - Domain: ai.yourcompany.com
+   - Scheme: http
+   - Forward Hostname: localhost
+   - Forward Port: 3000 (frontend)
+   - Enable WebSockets Support
+   - Enable Block Common Exploits
+4. Request SSL certificate through NPM UI
+
+#### Configure Backend Proxy
+Create a second proxy host for the backend:
+- Domain: api.yourcompany.com (or use a sub-path)
+- Forward Port: 8000
+- Enable WebSockets Support
+
+### Option 2: Cloudflare Tunnel
+
+Cloudflare Tunnel provides secure, zero-trust access without opening firewall ports.
+
+#### Setup Cloudflare Tunnel
+```bash
+# Install cloudflared
+# On Ubuntu/Debian:
+curl -L https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared jammy main' | sudo tee /etc/apt/sources.list.d/cloudflare.list
+sudo apt update
+sudo apt install cloudflared
+
+# Login to Cloudflare
+cloudflared tunnel login
+
+# Create a tunnel
+cloudflared tunnel create pydanticai-agent
+
+# Create tunnel configuration
+mkdir -p ~/.cloudflared
+cat > ~/.cloudflared/config.yml << 'EOF'
+tunnel: pydanticai-agent
+credentials-file: /root/.cloudflared/pydanticai-agent.json
+
+ingress:
+  - hostname: ai.yourcompany.com
+    service: http://localhost:3000
+  - hostname: ai.yourcompany.com
+    path: /ws
+    service: http://localhost:8000
+  - hostname: ai.yourcompany.com
+    path: /api/*
+    service: http://localhost:8000
+  - hostname: ai.yourcompany.com
+    path: /auth/*
+    service: http://localhost:8000
+  - hostname: ai.yourcompany.com
+    path: /health
+    service: http://localhost:8000
+  - service: http_status:404
+EOF
+
+# Run the tunnel
+cloudflared tunnel run pydanticai-agent
+```
+
+#### Configure DNS in Cloudflare Dashboard
+1. Go to Cloudflare Dashboard > Your Domain > DNS
+2. Create a CNAME record:
+   - Name: ai
+   - Target: `<tunnel-uuid>.cfargotunnel.com`
+   - Proxy status: Proxied
+
+#### Run as a Service (Optional)
+```bash
+# Create systemd service
+sudo nano /etc/systemd/system/cloudflared.service
+```
+
+Add:
+```ini
+[Unit]
+Description=Cloudflare Tunnel
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/cloudflared tunnel run pydanticai-agent
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+```bash
+sudo systemctl enable cloudflared
+sudo systemctl start cloudflared
+```
+
+### Option 3: Direct with SSL (Self-managed)
+
+If you have your own SSL certificates:
+
+```bash
+# Update frontend/nginx.conf to include SSL
+# Then mount certificates in docker-compose.yml
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "443:443"
+    volumes:
+      - ./ssl/cert.pem:/etc/nginx/ssl/cert.pem
+      - ./ssl/key.pem:/etc/nginx/ssl/key.pem
+    # ... rest of config
+```
+
+## Configuration Options
 
 ## Configuration Options
 

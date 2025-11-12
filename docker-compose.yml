@@ -1,23 +1,4 @@
 services:
-  traefik:
-    image: traefik:v3.0
-    command:
-      - --api.insecure=true
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
-      - --entrypoints.web.address=:80
-      - --entrypoints.websecure.address=:443
-      - --certificatesresolvers.myresolver.acme.tlschallenge=true
-      - --certificatesresolvers.myresolver.acme.email=admin@yourcompany.com
-      - --certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - ./letsencrypt:/letsencrypt
-    restart: unless-stopped
-
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -32,6 +13,8 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "8000:8000"
     environment:
       - AI_PROVIDER=${AI_PROVIDER}
       - AZURE_OPENAI_KEY=${AZURE_OPENAI_KEY}
@@ -49,12 +32,6 @@ services:
       - APP_HOST=${APP_HOST}
       - APP_SECRET=${APP_SECRET}
       - LOG_LEVEL=${LOG_LEVEL}
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.backend.rule=Host(`ai.yourcompany.com`) && PathPrefix(`/api`, `/auth`, `/health`, `/metrics`, `/docs`, `/ws`)"
-      - "traefik.http.routers.backend.entrypoints=websecure"
-      - "traefik.http.routers.backend.tls.certresolver=myresolver"
-      - "traefik.http.services.backend.loadbalancer.server.port=8000"
     depends_on:
       redis:
         condition: service_healthy
@@ -68,12 +45,8 @@ services:
 
   frontend:
     build: ./frontend
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`ai.yourcompany.com`) && PathPrefix(`/`)"
-      - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
-      - "traefik.http.services.frontend.loadbalancer.server.port=80"
+    ports:
+      - "3000:80"
     depends_on:
       backend:
         condition: service_healthy
