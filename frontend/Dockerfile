@@ -5,11 +5,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies with legacy peer deps to avoid conflicts
+RUN npm ci --legacy-peer-deps
 
 # Copy source code
 COPY . .
+
+# Create src directory if it doesn't exist
+RUN mkdir -p src
 
 # Build the application
 RUN npm run build
