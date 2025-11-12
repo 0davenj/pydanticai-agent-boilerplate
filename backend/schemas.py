@@ -1,11 +1,12 @@
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, field_validator
 from typing import Optional
 
 class ChatMessage(BaseModel):
     message: str
     session_id: str
     
-    @validator('message')
+    @field_validator('message')
+    @classmethod
     def validate_message(cls, v):
         if not v or len(v.strip()) == 0:
             raise ValueError('Message cannot be empty')
@@ -13,7 +14,8 @@ class ChatMessage(BaseModel):
             raise ValueError('Message too long (max 10000 characters)')
         return v.strip()
     
-    @validator('session_id')
+    @field_validator('session_id')
+    @classmethod
     def validate_session_id(cls, v):
         if not v or len(v.strip()) == 0:
             raise ValueError('Session ID cannot be empty')
