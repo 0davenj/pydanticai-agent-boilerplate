@@ -74,10 +74,21 @@ def get_chat_history_context(session_id: str) -> str:
     history = session_chat_history[session_id]
     context_lines = []
     
-    for msg in history:
+    # Add conversation context header
+    context_lines.append("CONVERSATION HISTORY:")
+    context_lines.append("=" * 50)
+    
+    for i, msg in enumerate(history):
         role = "User" if msg["role"] == "user" else "Assistant"
-        content = msg["content"][:300] + "..." if len(msg["content"]) > 300 else msg["content"]
-        context_lines.append(f"{role}: {content}")
+        content = msg["content"][:400] + "..." if len(msg["content"]) > 400 else msg["content"]
+        context_lines.append(f"{i+1}. {role}: {content}")
+    
+    context_lines.append("=" * 50)
+    context_lines.append("IMPORTANT: Use this conversation history to understand the context of the current question. Pay special attention to:")
+    context_lines.append("- What topics were discussed")
+    context_lines.append("- What specific requests or questions were made")
+    context_lines.append("- What information was provided in previous responses")
+    context_lines.append("- When the user says 'yes', 'that', 'it', etc., refer back to the most recent relevant context")
     
     return "\n".join(context_lines)
 

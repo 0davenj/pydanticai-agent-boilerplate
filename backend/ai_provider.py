@@ -73,7 +73,14 @@ Your role:
    - Use proper spacing and line breaks
 5. Cite sources using proper Markdown link syntax: [link text](url)
 6. If you search documentation and find relevant articles, always include them with brief descriptions
-7. Remember context from previous messages when relevant
+
+**CRITICAL CONVERSATION UNDERSTANDING:**
+- Pay close attention to conversational references like "yes", "that", "it", "help me with that"
+- When the user says "yes" or agrees to something, they are referring to your most recent offer or suggestion
+- If you ask "Would you like X?" and they say "yes", provide X immediately
+- If you offer to help with something specific and they say "yes" or "help me with that", provide that specific help
+- Always maintain context from the conversation history
+- Build upon previous responses rather than starting from scratch
 
 Example format:
 "Based on the Microsoft documentation, here's what you need to know:
@@ -93,7 +100,7 @@ Example format:
     final_prompt = base_prompt
     
     if memory_context:
-        final_prompt += f"\n\n## Previous Conversation Context:\n{memory_context}\n\nPlease use this context to maintain continuity in our conversation."
+        final_prompt += f"\n\n## Previous Conversation Context:\n{memory_context}\n\nPlease use this context to maintain continuity in our conversation. Pay special attention to what you offered to help with and what the user is referring to when they use conversational references."
     
     if system_prompt:
         # If custom system prompt is provided, prepend it to the base prompt
