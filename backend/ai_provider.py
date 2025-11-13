@@ -1,8 +1,11 @@
 import os
 from typing import Optional
 from pydantic_ai import Agent
-from pydantic_ai.models.openai import OpenAIModel
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.models.anthropic import AnthropicModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
+from pydantic_ai.providers.azure import AzureProvider
 from config import settings
 
 def get_ai_model():
@@ -12,30 +15,30 @@ def get_ai_model():
         if not settings.azure_openai_key or not settings.azure_openai_endpoint:
             raise ValueError("Azure OpenAI configuration missing")
         
-        return OpenAIModel(
+        return OpenAIChatModel(
             settings.azure_openai_deployment,
-            api_key=settings.azure_openai_key,
-            base_url=f"{settings.azure_openai_endpoint}/openai/deployments/{settings.azure_openai_deployment}",
-            api_type="azure"
+            provider=AzureProvider(
+                azure_endpoint=settings.azure_openai_endpoint,
+                api_key=settings.azure_openai_key
+            )
         )
     
     elif settings.ai_provider == "openrouter":
         if not settings.openrouter_api_key:
             raise ValueError("OpenRouter API key missing")
         
-        return OpenAIModel(
+        return OpenAIChatModel(
             settings.openrouter_model,
-            api_key=settings.openrouter_api_key,
-            base_url="https://openrouter.ai/api/v1"
+            provider=OpenRouterProvider(api_key=settings.openrouter_api_key)
         )
     
     elif settings.ai_provider == "openai":
         if not settings.openai_api_key:
             raise ValueError("OpenAI API key missing")
         
-        return OpenAIModel(
+        return OpenAIChatModel(
             settings.openai_model,
-            api_key=settings.openai_api_key
+            provider=OpenAIProvider(api_key=settings.openai_api_key)
         )
     
     elif settings.ai_provider == "anthropic":
