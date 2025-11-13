@@ -11,7 +11,7 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const ws = useRef(null);
-  const currentResponseId = useRef(null); // Track current response to prevent duplicates
+  const currentResponseId = useRef(null);
 
   useEffect(() => {
     // Get session ID on component mount
@@ -58,45 +58,36 @@ function App() {
         setConnectionStatus('Connected and Authenticated');
         console.log('Authenticated successfully');
       } else if (data.type === 'chunk') {
-        setMessages(prev => {
-          // Create a copy to avoid mutation issues
-          const newMessages = [...prev];
-          
+        console.log(`Received chunk ${data.chunk_id}: "${data.content}"`);
+        
+        // Use functional update to ensure we always have latest state
+        setMessages(prevMessages => {
           // Find the last assistant message that is not done
-          let targetIndex = -1;
-          for (let i = newMessages.length - 1; i >= 0; i--) {
-            if (newMessages[i].role === 'assistant' && !newMessages[i].done) {
-              targetIndex = i;
-              break;
-            }
-          }
+          const lastAssistantIndex = prevMessages.findLastIndex(m => m.role === 'assistant' && !m.done);
           
-          if (targetIndex !== -1) {
-            // Check if this is cumulative content (full response so far) or incremental (just the delta)
-            if (data.is_cumulative) {
-              // Replace the content with the new cumulative content
-              newMessages[targetIndex] = {
-                ...newMessages[targetIndex],
-                content: data.content  // Replace, don't append
-              };
-            } else {
-              // Append incremental content
-              newMessages[targetIndex] = {
-                ...newMessages[targetIndex],
-                content: newMessages[targetIndex].content + data.content
-              };
-            }
+          if (lastAssistantIndex !== -1) {
+            // Get current content and append new chunk
+            const currentContent = prevMessages[lastAssistantIndex].content;
+            const newContent = currentContent + data.content;
+            
+            // Create new array with updated message
+            return [
+              ...prevMessages.slice(0, lastAssistantIndex),
+              {
+                ...prevMessages[lastAssistantIndex],
+                content: newContent
+              },
+              ...prevMessages.slice(lastAssistantIndex + 1)
+            ];
           } else {
-            // Create new assistant message
-            newMessages.push({
+            // Create new message
+            return [...prevMessages, {
               role: 'assistant',
               content: data.content,
               done: false,
-              response_id: data.response_id  // Track which response this belongs to
-            });
+              response_id: data.response_id
+            }];
           }
-          
-          return newMessages;
         });
       } else if (data.type === 'done') {
         setMessages(prev => {
