@@ -200,35 +200,79 @@ async def websocket_endpoint(websocket: WebSocket):
                     "message_length": len(message)
                 })
                 
-                # Stream response from agent - simplified approach
+                # Stream response from agent - DEBUG VERSION with extensive logging
                 chunk_count = 0
-                response_id = str(uuid.uuid4())  # Unique ID for this response
+                response_id = str(uuid.uuid4())
+                previous_content = ""  # Track previous content to extract delta
                 
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
                         chunk_count += 1
                         
-                        # Handle both object-style and string-style chunks
+                        # Extract content from chunk object
                         if hasattr(chunk, 'text'):
-                            content = chunk.text
+                            current_content = chunk.text
                         elif hasattr(chunk, 'content'):
-                            content = chunk.content
+                            current_content = chunk.content
                         elif hasattr(chunk, 'data'):
-                            content = chunk.data
+                            current_content = chunk.data
                         else:
-                            # If it's already a string or needs to be converted
-                            content = str(chunk)
+                            current_content = str(chunk)
                         
-                        # Debug logging
-                        logger.debug(f"Chunk #{chunk_count}: length={len(content)}, content='{content[:50]}...'")
+                        # EXTENSIVE DEBUG LOGGING
+                        logger.info(f"=== CHUNK {chunk_count} ===")
+                        logger.info(f"Raw chunk type: {type(chunk)}")
+                        logger.info(f"Current content length: {len(current_content)}")
+                        logger.info(f"Previous content length: {len(previous_content)}")
+                        logger.info(f"Current content (first 100 chars): '{current_content[:100]}...'")
+                        if previous_content:
+                            logger.info(f"Previous content (first 100 chars): '{previous_content[:100]}...'")
                         
-                        # Send the raw chunk content - let frontend handle it
-                        await websocket.send_json({
-                            "type": "chunk",
-                            "content": content,  # Send raw content, not delta
-                            "chunk_id": chunk_count,
-                            "response_id": response_id
-                        })
+                        # DELTA EXTRACTION LOGIC
+                        if not previous_content:
+                            # First chunk
+                            delta = current_content
+                            logger.info(f"FIRST CHUNK: delta_len={len(delta)}")
+                        elif current_content.startswith(previous_content):
+                            # Perfect cumulative match
+                            delta = current_content[len(previous_content):]
+                            logger.info(f"CUMULATIVE MATCH: delta_len={len(delta)}")
+                            logger.info(f"  Previous: '{previous_content[-50:]}'")
+                            logger.info(f"  Current:  '{current_content[-50:]}'")
+                            logger.info(f"  Delta:    '{delta[:50]}'")
+                        else:
+                            # No match - log detailed comparison
+                            logger.warning(f"NO MATCH - Using full content as delta")
+                            logger.warning(f"  Previous ends with: '{previous_content[-30:]}'")
+                            logger.warning(f"  Current starts with: '{current_content[:30]}'")
+                            
+                            # Try to find where they diverge
+                            min_len = min(len(previous_content), len(current_content))
+                            for i in range(min_len):
+                                if current_content[i] != previous_content[i]:
+                                    logger.warning(f"  First difference at position {i}")
+                                    logger.warning(f"  Previous char: '{previous_content[i]}'")
+                                    logger.warning(f"  Current char: '{current_content[i]}'")
+                                    break
+                            
+                            delta = current_content
+                        
+                        # Update tracker
+                        previous_content = current_content
+                        
+                        # Log what we're sending
+                        if delta:
+                            logger.info(f"SENDING DELTA: len={len(delta)}")
+                            logger.debug(f"Delta content: '{delta[:100]}...'")
+                        
+                            await websocket.send_json({
+                                "type": "chunk",
+                                "content": delta,
+                                "chunk_id": chunk_count,
+                                "response_id": response_id
+                            })
+                        else:
+                            logger.info("SKIPPING: Empty delta")
                 
                 await websocket.send_json({"type": "done"})
                 logger.info(f"Message processed successfully for session {session_id}")
