@@ -10,6 +10,7 @@ function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [sessionId, setSessionId] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
+  const [aiProvider, setAiProvider] = useState('Unknown'); // Track AI provider
   const ws = useRef(null);
   const currentResponseId = useRef(null);
 
@@ -57,6 +58,10 @@ function App() {
         setIsAuthenticated(true);
         setConnectionStatus('Connected and Authenticated');
         console.log('Authenticated successfully');
+        // Set AI provider from backend
+        if (data.ai_provider) {
+          setAiProvider(data.ai_provider);
+        }
       } else if (data.type === 'chunk') {
         console.log(`Received chunk ${data.chunk_id}: "${data.content}"`);
         

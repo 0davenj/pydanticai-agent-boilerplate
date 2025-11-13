@@ -184,7 +184,11 @@ async def websocket_endpoint(websocket: WebSocket):
         await redis_client.setex(session_key, 3600, json.dumps(session_data))
         
         # Session is valid, proceed with chat
-        await websocket.send_json({"type": "auth_success", "message": "Authenticated successfully"})
+        await websocket.send_json({
+            "type": "auth_success",
+            "message": "Authenticated successfully",
+            "ai_provider": settings.ai_provider
+        })
         logger.info(f"WebSocket authenticated for session: {session_id}")
         
         async for data in websocket.iter_json():
@@ -200,10 +204,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     "message_length": len(message)
                 })
                 
-                # Stream response from agent - DEBUG VERSION with extensive logging
+                # Stream response from agent with sources tracking
                 chunk_count = 0
                 response_id = str(uuid.uuid4())
                 previous_content = ""  # Track previous content to extract delta
+                all_sources = []  # Track all MCP sources from the conversation
                 
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
@@ -219,60 +224,63 @@ async def websocket_endpoint(websocket: WebSocket):
                         else:
                             current_content = str(chunk)
                         
-                        # EXTENSIVE DEBUG LOGGING
-                        logger.info(f"=== CHUNK {chunk_count} ===")
-                        logger.info(f"Raw chunk type: {type(chunk)}")
-                        logger.info(f"Current content length: {len(current_content)}")
-                        logger.info(f"Previous content length: {len(previous_content)}")
-                        logger.info(f"Current content (first 100 chars): '{current_content[:100]}...'")
-                        if previous_content:
-                            logger.info(f"Previous content (first 100 chars): '{previous_content[:100]}...'")
-                        
-                        # DELTA EXTRACTION LOGIC
+                        # Extract delta (new content only)
                         if not previous_content:
-                            # First chunk
+                            # First chunk - delta is the entire content
                             delta = current_content
-                            logger.info(f"FIRST CHUNK: delta_len={len(delta)}")
                         elif current_content.startswith(previous_content):
-                            # Perfect cumulative match
+                            # Cumulative chunk - extract the delta
                             delta = current_content[len(previous_content):]
-                            logger.info(f"CUMULATIVE MATCH: delta_len={len(delta)}")
-                            logger.info(f"  Previous: '{previous_content[-50:]}'")
-                            logger.info(f"  Current:  '{current_content[-50:]}'")
-                            logger.info(f"  Delta:    '{delta[:50]}'")
                         else:
-                            # No match - log detailed comparison
-                            logger.warning(f"NO MATCH - Using full content as delta")
-                            logger.warning(f"  Previous ends with: '{previous_content[-30:]}'")
-                            logger.warning(f"  Current starts with: '{current_content[:30]}'")
-                            
-                            # Try to find where they diverge
-                            min_len = min(len(previous_content), len(current_content))
-                            for i in range(min_len):
-                                if current_content[i] != previous_content[i]:
-                                    logger.warning(f"  First difference at position {i}")
-                                    logger.warning(f"  Previous char: '{previous_content[i]}'")
-                                    logger.warning(f"  Current char: '{current_content[i]}'")
-                                    break
-                            
+                            # Unexpected pattern - log warning but use full content
+                            logger.warning(f"Non-cumulative chunk {chunk_count}. Prev: '{previous_content[:30]}...', Curr: '{current_content[:30]}...'")
                             delta = current_content
                         
-                        # Update tracker
+                        # Update previous content tracker
                         previous_content = current_content
                         
-                        # Log what we're sending
+                        # Send the delta
                         if delta:
-                            logger.info(f"SENDING DELTA: len={len(delta)}")
-                            logger.debug(f"Delta content: '{delta[:100]}...'")
-                        
                             await websocket.send_json({
                                 "type": "chunk",
                                 "content": delta,
                                 "chunk_id": chunk_count,
                                 "response_id": response_id
                             })
-                        else:
-                            logger.info("SKIPPING: Empty delta")
+                
+                # After streaming is complete, check for sources in the final result
+                try:
+                    # Get the final result to extract sources
+                    final_result = await result.get_data()
+                    
+                    # Extract sources from the result
+                    result_sources = []
+                    if hasattr(final_result, 'sources') and final_result.sources:
+                        result_sources = final_result.sources
+                    elif hasattr(result, 'sources') and result.sources:
+                        result_sources = result.sources
+                    
+                    # Add to our collection of sources
+                    if result_sources:
+                        all_sources.extend(result_sources)
+                    
+                    # Send sources if any were found
+                    if all_sources:
+                        # Deduplicate sources
+                        unique_sources = list(set(all_sources))
+                        sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {source}" for source in unique_sources])
+                        
+                        await websocket.send_json({
+                            "type": "sources",
+                            "content": sources_text,
+                            "chunk_id": chunk_count + 1,
+                            "response_id": response_id
+                        })
+                except Exception as e:
+                    logger.debug(f"No sources to extract or error extracting sources: {e}")
+                
+                # Send completion message
+                await websocket.send_json({"type": "done"})
                 
                 await websocket.send_json({"type": "done"})
                 logger.info(f"Message processed successfully for session {session_id}")
