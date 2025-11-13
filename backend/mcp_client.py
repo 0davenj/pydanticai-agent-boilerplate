@@ -36,9 +36,16 @@ class MCPClient:
             response = await self.client.get("/tools")
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 405:
+                # MCP endpoint exists but doesn't support GET /tools (not a real MCP server)
+                logger.warning(f"MCP endpoint returned 405 - likely not a real MCP server: {self.base_url}")
+            else:
+                logger.warning(f"MCP HTTP error: {e}")
+            return []
         except Exception as e:
             # Log error but don't crash the app
-            print(f"Error listing MCP tools: {e}")
+            logger.warning(f"Error listing MCP tools: {e}")
             return []
     
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
