@@ -46,8 +46,39 @@ security = HTTPBearer(auto_error=False)
 # Redis connection
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
-# Session tool calls storage
-session_tool_calls: Dict[str, List] = {}
+# Session chat history storage (last 10 messages per session)
+session_chat_history: Dict[str, List] = {}
+MAX_CHAT_HISTORY = 10
+
+def add_to_chat_history(session_id: str, role: str, content: str):
+    """Add a message to the chat history for a session"""
+    if session_id not in session_chat_history:
+        session_chat_history[session_id] = []
+    
+    session_chat_history[session_id].append({
+        "role": role,
+        "content": content,
+        "timestamp": time.time()
+    })
+    
+    # Keep only the last MAX_CHAT_HISTORY messages
+    if len(session_chat_history[session_id]) > MAX_CHAT_HISTORY:
+        session_chat_history[session_id] = session_chat_history[session_id][-MAX_CHAT_HISTORY:]
+
+def get_chat_history_context(session_id: str) -> str:
+    """Get formatted chat history context for the agent"""
+    if session_id not in session_chat_history or not session_chat_history[session_id]:
+        return ""
+    
+    history = session_chat_history[session_id]
+    context_lines = []
+    
+    for msg in history:
+        role = "User" if msg["role"] == "user" else "Assistant"
+        content = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
+        context_lines.append(f"{role}: {content}")
+    
+    return "\n".join(context_lines)
 
 # Import FastMCPToolset for simple MCP integration
 from pydantic_ai.toolsets.fastmcp import FastMCPToolset
@@ -82,13 +113,15 @@ After using MCP tools, provide a comprehensive answer with:
 ALWAYS include the source links in your response. Format them as markdown links like [Title](URL). If the MCP tool returns multiple sources, include all of them.
 
 Always cite your sources and provide links to Microsoft Learn documentation.""",
-        toolsets=[mcp_toolset]
+        toolsets=[mcp_toolset],
+        memory_context=""
     )
     logger.info("Agent created with MCP toolset")
 else:
     agent = create_agent(
         system_prompt="You are a helpful assistant. MCP tools are not available.",
-        toolsets=[]
+        toolsets=[],
+        memory_context=""
     )
     logger.warning("Agent created without MCP tools")
 
@@ -252,18 +285,47 @@ async def websocket_endpoint(websocket: WebSocket):
                     await websocket.send_json({"type": "error", "message": "Empty message"})
                     continue
                 
+                # Add user message to chat history
+                add_to_chat_history(session_id, "user", message)
+                
                 MESSAGES_PROCESSED.inc()
                 logger.info(f"Processing message for session {session_id}", extra={
                     "session_id": session_id,
                     "message_length": len(message)
                 })
                 
-                # Stream response from agent - simplified approach first
+                # Get chat history context for memory
+                memory_context = get_chat_history_context(session_id)
+                
+                # Create a new agent with memory context
+                memory_agent = create_agent(
+                    system_prompt="""You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools via MCP.
+
+IMPORTANT: Always use your MCP tools when:
+- The user asks about Microsoft products, services, or technologies
+- You need to find specific documentation or articles
+- The question requires up-to-date technical information
+- You're unsure about Microsoft-specific details
+
+After using MCP tools, provide a comprehensive answer with:
+1. The information found
+2. Relevant links to the documentation (ALWAYS include the actual URLs from the MCP tool responses)
+3. Any important notes or caveats
+
+ALWAYS include the source links in your response. Format them as markdown links like [Title](URL). If the MCP tool returns multiple sources, include all of them.
+
+Always cite your sources and provide links to Microsoft Learn documentation.""",
+                    toolsets=[mcp_toolset] if mcp_toolset else [],
+                    memory_context=f"\n\nPrevious conversation context:\n{memory_context}" if memory_context else ""
+                )
+                
+                # Stream response from agent
                 chunk_count = 0
                 response_id = str(uuid.uuid4())
                 previous_content = ""  # Track previous content to extract delta
+                full_response = ""  # Track full response for chat history
                 
-                async with agent.run_stream(message) as result:
+                async with memory_agent.run_stream(message) as result:
                     async for chunk in result.stream():
                         chunk_count += 1
                         
@@ -291,6 +353,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                         # Update previous content tracker
                         previous_content = current_content
+                        full_response += delta
                         
                         # Send the delta
                         if delta:
@@ -300,6 +363,10 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "chunk_id": chunk_count,
                                 "response_id": response_id
                             })
+                
+                # Add assistant response to chat history
+                if full_response:
+                    add_to_chat_history(session_id, "assistant", full_response)
                 
                 # Try to extract sources from MCP tool responses
                 sources_found = False

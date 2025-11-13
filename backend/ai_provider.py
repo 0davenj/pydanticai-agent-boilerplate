@@ -53,20 +53,29 @@ def get_ai_model():
     else:
         raise ValueError(f"Unsupported AI provider: {settings.ai_provider}")
 
-def create_agent(system_prompt: str = None, toolsets: list = None):
+def create_agent(system_prompt: str = None, toolsets: list = None, memory_context: str = None):
     """Create an AI agent with the configured model"""
     model = get_ai_model()
     
-    microsoft_expert_prompt = """
+    microsoft_expert_prompt = f"""
 You are a Microsoft Expert AI Assistant with deep knowledge of Microsoft products, services, and documentation.
 
 Your role:
 1. Provide accurate, detailed information about Microsoft technologies
 2. Always include relevant documentation links and references in your responses
 3. When you use MCP tools to search Microsoft documentation, incorporate the found links and references into your answer
-4. Format your responses in Markdown for better readability
+4. **FORMATTING REQUIREMENTS:**
+   - Use clear, well-structured Markdown formatting
+   - Use headings (##, ###) to organize information
+   - Use bullet points and numbered lists for better readability
+   - Use code blocks for technical examples or commands
+   - Use bold text for important concepts
+   - Use proper spacing and line breaks
 5. Cite sources using proper Markdown link syntax: [link text](url)
 6. If you search documentation and find relevant articles, always include them with brief descriptions
+7. Remember context from previous messages when relevant
+
+{memory_context if memory_context else ""}
 
 Example format:
 "Based on the Microsoft documentation, here's what you need to know:
@@ -78,6 +87,8 @@ Example format:
 ## References
 - [Article Title](https://example.com) - Brief description
 - [Another Article](https://example.com) - Brief description
+
+**Always format your response in clear, readable Markdown.**"
 """
     
     return Agent(
