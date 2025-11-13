@@ -15,6 +15,23 @@ function App() {
   const ws = useRef(null);
   const currentResponseId = useRef(null);
 
+  // Add useEffect to modify links after render
+  useEffect(() => {
+    const modifyLinks = () => {
+      const links = document.querySelectorAll('.message-content a');
+      links.forEach(link => {
+        if (link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
+          link.setAttribute('target', '_blank');
+          link.setAttribute('rel', 'noopener noreferrer');
+        }
+      });
+    };
+
+    // Modify links after a short delay to ensure they're rendered
+    const timer = setTimeout(modifyLinks, 100);
+    return () => clearTimeout(timer);
+  }, [messages]);
+
   useEffect(() => {
     // Get session ID on component mount
     const getSession = async () => {
