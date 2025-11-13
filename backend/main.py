@@ -76,8 +76,10 @@ IMPORTANT: Always use your MCP tools when:
 
 After using MCP tools, provide a comprehensive answer with:
 1. The information found
-2. Relevant links to the documentation
+2. Relevant links to the documentation (ALWAYS include the actual URLs from the MCP tool responses)
 3. Any important notes or caveats
+
+ALWAYS include the source links in your response. Format them as markdown links like [Title](URL). If the MCP tool returns multiple sources, include all of them.
 
 Always cite your sources and provide links to Microsoft Learn documentation.""",
         toolsets=[mcp_toolset]
@@ -299,70 +301,94 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "response_id": response_id
                             })
                 
-                # Try to extract sources BEFORE sending done message
+                # Try to extract sources from MCP tool responses
                 sources_found = False
                 try:
-                    logger.info("Attempting to extract sources from result...")
-                    logger.info(f"Result type: {type(result)}")
-                    logger.info(f"Result attributes: {dir(result)}")
-                    
-                    # Check if result has get_data method
+                    # Check if result has data with tool calls that might contain source information
                     if hasattr(result, 'get_data'):
                         final_data = await result.get_data()
-                        logger.info(f"Final data type: {type(final_data)}")
-                        logger.info(f"Final data attributes: {dir(final_data)}")
                         
-                        # Look for sources in various possible locations
-                        sources = None
-                        if hasattr(final_data, 'sources'):
-                            sources = final_data.sources
-                            logger.info(f"Found sources in final_data.sources: {sources}")
-                        elif hasattr(result, 'sources'):
-                            sources = result.sources
-                            logger.info(f"Found sources in result.sources: {sources}")
-                        elif hasattr(final_data, 'tool_calls'):
-                            sources = final_data.tool_calls
-                            logger.info(f"Found sources in final_data.tool_calls: {sources}")
-                        elif hasattr(final_data, 'messages'):
-                            # Check if messages contain tool calls
-                            for msg in final_data.messages:
-                                if hasattr(msg, 'tool_calls') and msg.tool_calls:
-                                    sources = msg.tool_calls
-                                    logger.info(f"Found sources in message.tool_calls: {sources}")
-                                    break
-                        
-                        if sources:
-                            logger.info(f"Found sources: {sources}")
-                            # Convert sources to a readable format
+                        # Look for tool calls that might contain source information
+                        if hasattr(final_data, 'tool_calls') and final_data.tool_calls:
+                            logger.info(f"Found {len(final_data.tool_calls)} tool calls")
+                            
+                            # Extract source information from MCP tool responses
                             sources_list = []
-                            if isinstance(sources, list):
-                                for source in sources:
-                                    if hasattr(source, 'name'):
-                                        sources_list.append(f"Tool: {source.name}")
-                                    elif hasattr(source, 'function'):
-                                        if hasattr(source.function, 'name'):
-                                            sources_list.append(f"Function: {source.function.name}")
-                                        else:
-                                            sources_list.append(f"Function call: {source}")
-                                    else:
-                                        sources_list.append(str(source))
+                            for tool_call in final_data.tool_calls:
+                                logger.info(f"Processing tool call: {tool_call}")
+                                
+                                # Check if this is an MCP tool call with response data
+                                if hasattr(tool_call, 'response') and tool_call.response:
+                                    response_data = tool_call.response
+                                    
+                                    # Look for source links in the response
+                                    if isinstance(response_data, dict):
+                                        # Check for common source field names in MCP responses
+                                        source_fields = ['sources', 'links', 'references', 'urls', 'source', 'link', 'url']
+                                        
+                                        for field in source_fields:
+                                            if field in response_data:
+                                                field_data = response_data[field]
+                                                logger.info(f"Found {field} in response: {field_data}")
+                                                
+                                                if isinstance(field_data, list):
+                                                    for item in field_data:
+                                                        if isinstance(item, dict):
+                                                            # Look for URL or link information
+                                                            if 'url' in item or 'link' in item:
+                                                                url = item.get('url') or item.get('link')
+                                                                title = item.get('title', 'Documentation')
+                                                                if url:
+                                                                    sources_list.append(f"- [{title}]({url})")
+                                                        elif isinstance(item, str) and ('http' in item or 'https' in item):
+                                                            # Direct URL
+                                                            sources_list.append(f"- {item}")
+                                                        else:
+                                                            sources_list.append(f"- {item}")
+                                                elif isinstance(field_data, str) and ('http' in field_data or 'https' in field_data):
+                                                    # Direct URL
+                                                    sources_list.append(f"- {field_data}")
+                                                elif isinstance(field_data, dict):
+                                                    # Check for URL in dict
+                                                    url = field_data.get('url') or field_data.get('link') or field_data.get('url')
+                                                    title = field_data.get('title', 'Documentation')
+                                                    if url:
+                                                        sources_list.append(f"- [{title}]({url})")
+                                
+                                # Also check for direct source information in tool call
+                                if hasattr(tool_call, 'source') and tool_call.source:
+                                    sources_list.append(f"- Source: {tool_call.source}")
+                                
+                                # Check for any URLs in the response data
+                                if isinstance(response_data, dict):
+                                    for key, value in response_data.items():
+                                        if 'url' in key.lower() or 'link' in key.lower():
+                                            if isinstance(value, str) and ('http' in value or 'https' in value):
+                                                sources_list.append(f"- {value}")
+                                        elif isinstance(value, list):
+                                            for item in value:
+                                                if isinstance(item, dict) and ('url' in item or 'link' in item):
+                                                    url = item.get('url') or item.get('link')
+                                                    title = item.get('title', 'Documentation')
+                                                    if url:
+                                                        sources_list.append(f"- [{title}]({url})")
+                            
+                            if sources_list:
+                                sources_text = "\n\n**Sources:**\n" + "\n".join(sources_list)
+                                
+                                # Send sources BEFORE done message
+                                await websocket.send_json({
+                                    "type": "sources",
+                                    "content": sources_text,
+                                    "chunk_id": chunk_count + 1,
+                                    "response_id": response_id
+                                })
+                                sources_found = True
+                                logger.info(f"Found and sent {len(sources_list)} sources")
                             else:
-                                sources_list.append(str(sources))
-                            
-                            sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {source}" for source in sources_list])
-                            
-                            # Send sources BEFORE done message
-                            await websocket.send_json({
-                                "type": "sources",
-                                "content": sources_text,
-                                "chunk_id": chunk_count + 1,
-                                "response_id": response_id
-                            })
-                            sources_found = True
+                                logger.info("No source links found in tool responses")
                         else:
-                            logger.info("No sources found in result")
-                    else:
-                        logger.info("Result does not have get_data method")
+                            logger.info("No tool calls found in result")
                         
                 except Exception as e:
                     logger.error(f"Error extracting sources: {e}")
