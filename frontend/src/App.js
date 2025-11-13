@@ -34,25 +34,6 @@ function App() {
     getSession();
   }, []);
 
-  // Add useEffect to modify links after render
-  useEffect(() => {
-    const modifyLinks = () => {
-      const links = document.querySelectorAll('.message-content a');
-      links.forEach(link => {
-        if (link.href && (link.href.startsWith('http://') || link.href.startsWith('https://'))) {
-          if (!link.getAttribute('target')) {
-            link.setAttribute('target', '_blank');
-            link.setAttribute('rel', 'noopener noreferrer');
-          }
-        }
-      });
-    };
-
-    // Modify links after a short delay to ensure they're rendered
-    const timer = setTimeout(modifyLinks, 200);
-    return () => clearTimeout(timer);
-  }, []);
-
   useEffect(() => {
     if (!sessionId) return;
 
@@ -212,7 +193,21 @@ function App() {
           {messages.map((message, index) => (
             <div key={index} className={`message ${message.role}`}>
               <div className="message-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ href, children, ...props }) => (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        {...props}
+                      >
+                        {children}
+                      </a>
+                    )
+                  }}
+                >
                   {message.content}
                 </ReactMarkdown>
                 {message.role === 'assistant' && !message.done && (
