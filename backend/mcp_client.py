@@ -27,37 +27,48 @@ class MCPClient:
             self._initialized = True
     
     async def list_tools(self) -> List[Dict[str, Any]]:
-        """List available MCP tools"""
+        """List available MCP tools - supports both REST and JSON-RPC protocols"""
         if not self.base_url or not self._initialized:
             return []
         
         try:
             await self.initialize()
-            # Try GET first (some MCP servers support this)
-            response = await self.client.get("/tools")
+            
+            # Try JSON-RPC first (more common for streamable MCP like Microsoft's)
+            json_rpc_request = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/list",
+                "params": {}
+            }
+            response = await self.client.post("/", json=json_rpc_request)
             response.raise_for_status()
-            return response.json()
+            result = response.json()
+            
+            # Extract tools from JSON-RPC response
+            if "result" in result and isinstance(result["result"], list):
+                logger.info(f"MCP JSON-RPC successful, found {len(result['result'])} tools")
+                return result["result"]
+            elif "result" in result and isinstance(result["result"], dict) and "tools" in result["result"]:
+                # Some implementations wrap tools in a dict
+                logger.info(f"MCP JSON-RPC successful, found {len(result['result']['tools'])} tools")
+                return result["result"]["tools"]
+            else:
+                logger.warning(f"MCP JSON-RPC returned unexpected format: {result}")
+                return []
+                
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 405:
-                # MCP endpoint doesn't support GET /tools, try POST with JSON-RPC
-                logger.info(f"MCP endpoint returned 405 for GET /tools, trying POST JSON-RPC: {self.base_url}")
+                # Try legacy REST approach as fallback
+                logger.info(f"MCP JSON-RPC returned 405, trying legacy REST approach: {self.base_url}")
                 try:
-                    # MCP HTTP transport uses JSON-RPC
-                    json_rpc_request = {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "tools/list",
-                        "params": {}
-                    }
-                    response = await self.client.post("/", json=json_rpc_request)
+                    response = await self.client.get("/tools")
                     response.raise_for_status()
-                    result = response.json()
-                    # Extract tools from JSON-RPC response
-                    if "result" in result:
-                        return result["result"]
-                    return []
-                except Exception as post_e:
-                    logger.warning(f"MCP POST JSON-RPC also failed: {post_e}")
+                    tools = response.json()
+                    logger.info(f"MCP REST successful, found {len(tools)} tools")
+                    return tools
+                except Exception as rest_e:
+                    logger.warning(f"MCP REST approach also failed: {rest_e}")
             else:
                 logger.warning(f"MCP HTTP error: {e}")
             return []
