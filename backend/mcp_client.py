@@ -33,13 +33,31 @@ class MCPClient:
         
         try:
             await self.initialize()
+            # Try GET first (some MCP servers support this)
             response = await self.client.get("/tools")
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 405:
-                # MCP endpoint exists but doesn't support GET /tools (not a real MCP server)
-                logger.warning(f"MCP endpoint returned 405 - likely not a real MCP server: {self.base_url}")
+                # MCP endpoint doesn't support GET /tools, try POST with JSON-RPC
+                logger.info(f"MCP endpoint returned 405 for GET /tools, trying POST JSON-RPC: {self.base_url}")
+                try:
+                    # MCP HTTP transport uses JSON-RPC
+                    json_rpc_request = {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "tools/list",
+                        "params": {}
+                    }
+                    response = await self.client.post("/", json=json_rpc_request)
+                    response.raise_for_status()
+                    result = response.json()
+                    # Extract tools from JSON-RPC response
+                    if "result" in result:
+                        return result["result"]
+                    return []
+                except Exception as post_e:
+                    logger.warning(f"MCP POST JSON-RPC also failed: {post_e}")
             else:
                 logger.warning(f"MCP HTTP error: {e}")
             return []
@@ -61,9 +79,16 @@ class MCPClient:
             )
             response.raise_for_status()
             return response.json()
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 405:
+                # MCP endpoint exists but doesn't support POST /tools/{tool}/call
+                logger.info(f"MCP endpoint returned 405 for tool call - may use different protocol: {self.base_url}")
+            else:
+                logger.warning(f"MCP HTTP error calling tool {tool_name}: {e}")
+            return {"error": f"MCP tool call failed: {e}"}
         except Exception as e:
             error_msg = f"Error calling MCP tool {tool_name}: {e}"
-            print(error_msg)
+            logger.warning(error_msg)
             return {"error": error_msg}
     
     async def close(self):
