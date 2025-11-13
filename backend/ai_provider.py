@@ -29,7 +29,9 @@ def get_ai_model():
         
         return OpenAIChatModel(
             settings.openrouter_model,
-            provider=OpenRouterProvider(api_key=settings.openrouter_api_key)
+            provider=OpenRouterProvider(api_key=settings.openrouter_api_key),
+            temperature=0.7,  # Lower temperature to reduce repetition
+            max_tokens=2000   # Limit response length
         )
     
     elif settings.ai_provider == "openai":

@@ -201,10 +201,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 })
                 
                 # Stream response from agent
+                chunk_count = 0
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
+                        chunk_count += 1
                         # Debug logging
-                        logger.debug(f"Chunk type: {type(chunk)}, value: {chunk}")
+                        logger.debug(f"Chunk #{chunk_count}: type={type(chunk)}, value={chunk}")
                         
                         # Handle both object-style and string-style chunks
                         if hasattr(chunk, 'text'):
@@ -219,7 +221,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         
                         await websocket.send_json({
                             "type": "chunk",
-                            "content": content
+                            "content": content,
+                            "chunk_id": chunk_count  # Add chunk ID for debugging
                         })
                 
                 await websocket.send_json({"type": "done"})

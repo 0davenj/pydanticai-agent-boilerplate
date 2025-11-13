@@ -58,17 +58,30 @@ function App() {
         console.log('Authenticated successfully');
       } else if (data.type === 'chunk') {
         setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.done) {
+          // Create a copy to avoid mutation issues
+          const newMessages = [...prev];
+          
+          // Find the last assistant message that is not done
+          let targetIndex = -1;
+          for (let i = newMessages.length - 1; i >= 0; i--) {
+            if (newMessages[i].role === 'assistant' && !newMessages[i].done) {
+              targetIndex = i;
+              break;
+            }
+          }
+          
+          if (targetIndex !== -1) {
             // Append to existing assistant message
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMessage, content: lastMessage.content + data.content }
-            ];
+            newMessages[targetIndex] = {
+              ...newMessages[targetIndex],
+              content: newMessages[targetIndex].content + data.content
+            };
           } else {
             // Create new assistant message
-            return [...prev, { role: 'assistant', content: data.content, done: false }];
+            newMessages.push({ role: 'assistant', content: data.content, done: false });
           }
+          
+          return newMessages;
         });
       } else if (data.type === 'done') {
         setMessages(prev => {
@@ -117,8 +130,8 @@ function App() {
     // Send message to server
     ws.current.send(JSON.stringify({ message: inputMessage }));
     
-    // Add placeholder for assistant response
-    setMessages(prev => [...prev, { role: 'assistant', content: '', done: false }]);
+    // DON'T create placeholder - let first chunk create the assistant message
+    // This prevents duplicate messages and handles streaming correctly
     
     // Clear input
     setInputMessage('');
