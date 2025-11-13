@@ -46,7 +46,10 @@ security = HTTPBearer(auto_error=False)
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
 # AI Agent
-agent = create_agent(system_prompt="You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools.")
+agent = create_agent(system_prompt="You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools. You are always to provide the links of your tool usage.")
+
+# Store tool calls for each session
+session_tool_calls = {}
 
 # Middleware for metrics
 @app.middleware("http")
@@ -183,6 +186,15 @@ async def websocket_endpoint(websocket: WebSocket):
         session_data["last_activity"] = time.time()
         await redis_client.setex(session_key, 3600, json.dumps(session_data))
         
+        # Initialize tool calls storage for this session
+        session_tool_calls[session_id] = []
+        
+        # DEBUG: Log current settings
+        logger.info(f"=== AUTH DEBUG ===")
+        logger.info(f"AI_PROVIDER env var: {os.getenv('AI_PROVIDER')}")
+        logger.info(f"settings.ai_provider: {settings.ai_provider}")
+        logger.info(f"All settings: {settings.__dict__}")
+        
         # Session is valid, proceed with chat
         from config import get_model_name
         await websocket.send_json({
@@ -249,10 +261,8 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "response_id": response_id
                             })
                 
-                # Send completion message
-                await websocket.send_json({"type": "done"})
-                
-                # Try to extract sources after streaming (debug version)
+                # Try to extract sources BEFORE sending done message
+                sources_found = False
                 try:
                     logger.info("Attempting to extract sources from result...")
                     logger.info(f"Result type: {type(result)}")
@@ -268,21 +278,49 @@ async def websocket_endpoint(websocket: WebSocket):
                         sources = None
                         if hasattr(final_data, 'sources'):
                             sources = final_data.sources
+                            logger.info(f"Found sources in final_data.sources: {sources}")
                         elif hasattr(result, 'sources'):
                             sources = result.sources
+                            logger.info(f"Found sources in result.sources: {sources}")
                         elif hasattr(final_data, 'tool_calls'):
                             sources = final_data.tool_calls
+                            logger.info(f"Found sources in final_data.tool_calls: {sources}")
+                        elif hasattr(final_data, 'messages'):
+                            # Check if messages contain tool calls
+                            for msg in final_data.messages:
+                                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                                    sources = msg.tool_calls
+                                    logger.info(f"Found sources in message.tool_calls: {sources}")
+                                    break
                         
                         if sources:
                             logger.info(f"Found sources: {sources}")
-                            sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {str(source)}" for source in sources])
+                            # Convert sources to a readable format
+                            sources_list = []
+                            if isinstance(sources, list):
+                                for source in sources:
+                                    if hasattr(source, 'name'):
+                                        sources_list.append(f"Tool: {source.name}")
+                                    elif hasattr(source, 'function'):
+                                        if hasattr(source.function, 'name'):
+                                            sources_list.append(f"Function: {source.function.name}")
+                                        else:
+                                            sources_list.append(f"Function call: {source}")
+                                    else:
+                                        sources_list.append(str(source))
+                            else:
+                                sources_list.append(str(sources))
                             
+                            sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {source}" for source in sources_list])
+                            
+                            # Send sources BEFORE done message
                             await websocket.send_json({
                                 "type": "sources",
                                 "content": sources_text,
                                 "chunk_id": chunk_count + 1,
                                 "response_id": response_id
                             })
+                            sources_found = True
                         else:
                             logger.info("No sources found in result")
                     else:
@@ -292,7 +330,11 @@ async def websocket_endpoint(websocket: WebSocket):
                     logger.error(f"Error extracting sources: {e}")
                     logger.error(f"Error details: {str(e)}")
                 
+                # Send completion message
                 await websocket.send_json({"type": "done"})
+                
+                if not sources_found:
+                    logger.info("No sources were found to send")
                 logger.info(f"Message processed successfully for session {session_id}")
                 
             except Exception as e:
