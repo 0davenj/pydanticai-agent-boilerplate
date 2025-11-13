@@ -202,11 +202,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # Stream response from agent
                 chunk_count = 0
+                response_id = str(uuid.uuid4())  # Unique ID for this response
+                full_response = ""  # Build the full response incrementally
+                last_chunk_hash = None  # Track last chunk to detect duplicates
+                
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
                         chunk_count += 1
-                        # Debug logging
-                        logger.debug(f"Chunk #{chunk_count}: type={type(chunk)}, value={chunk}")
                         
                         # Handle both object-style and string-style chunks
                         if hasattr(chunk, 'text'):
@@ -219,10 +221,46 @@ async def websocket_endpoint(websocket: WebSocket):
                             # If it's already a string or needs to be converted
                             content = str(chunk)
                         
+                        # Create hash of this chunk to detect exact duplicates
+                        import hashlib
+                        chunk_hash = hashlib.md5(content.encode()).hexdigest()
+                        
+                        if chunk_hash == last_chunk_hash:
+                            logger.debug(f"Chunk #{chunk_count}: Duplicate detected, skipping")
+                            continue
+                        last_chunk_hash = chunk_hash
+                        
+                        # Debug logging
+                        logger.debug(f"Chunk #{chunk_count}: type={type(chunk)}, length={len(content)}, content='{content[:50]}...'")
+                        
+                        # Check if this is a cumulative chunk (contains full response so far)
+                        # or an incremental chunk (just the new part)
+                        is_cumulative = False
+                        delta = content
+                        
+                        # More robust cumulative detection
+                        if full_response and len(content) > len(full_response):
+                            # Check if content starts with full_response (allowing for some whitespace differences)
+                            if content.strip().startswith(full_response.strip()):
+                                is_cumulative = True
+                                delta = content[len(full_response):]
+                                logger.debug(f"Detected cumulative chunk. Full length: {len(full_response)}, Delta length: {len(delta)}")
+                        
+                        # Update full response
+                        if is_cumulative:
+                            full_response = content
+                        else:
+                            full_response += content
+                        
+                        logger.debug(f"Sending chunk #{chunk_count}: delta='{delta[:30]}...', is_cumulative={is_cumulative}")
+                        
                         await websocket.send_json({
                             "type": "chunk",
-                            "content": content,
-                            "chunk_id": chunk_count  # Add chunk ID for debugging
+                            "content": delta,
+                            "chunk_id": chunk_count,
+                            "response_id": response_id,
+                            "is_cumulative": is_cumulative,
+                            "full_length": len(full_response)
                         })
                 
                 await websocket.send_json({"type": "done"})

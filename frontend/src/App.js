@@ -11,6 +11,7 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [connectionStatus, setConnectionStatus] = useState('Disconnected');
   const ws = useRef(null);
+  const currentResponseId = useRef(null); // Track current response to prevent duplicates
 
   useEffect(() => {
     // Get session ID on component mount
@@ -71,14 +72,28 @@ function App() {
           }
           
           if (targetIndex !== -1) {
-            // Append to existing assistant message
-            newMessages[targetIndex] = {
-              ...newMessages[targetIndex],
-              content: newMessages[targetIndex].content + data.content
-            };
+            // Check if this is cumulative content (full response so far) or incremental (just the delta)
+            if (data.is_cumulative) {
+              // Replace the content with the new cumulative content
+              newMessages[targetIndex] = {
+                ...newMessages[targetIndex],
+                content: data.content  // Replace, don't append
+              };
+            } else {
+              // Append incremental content
+              newMessages[targetIndex] = {
+                ...newMessages[targetIndex],
+                content: newMessages[targetIndex].content + data.content
+              };
+            }
           } else {
             // Create new assistant message
-            newMessages.push({ role: 'assistant', content: data.content, done: false });
+            newMessages.push({
+              role: 'assistant',
+              content: data.content,
+              done: false,
+              response_id: data.response_id  // Track which response this belongs to
+            });
           }
           
           return newMessages;
@@ -124,14 +139,15 @@ function App() {
       return;
     }
 
+    // Generate a unique ID for this response
+    const responseId = Date.now().toString();
+    currentResponseId.current = responseId;
+    
     // Add user message to chat
     setMessages(prev => [...prev, { role: 'user', content: inputMessage, done: true }]);
     
     // Send message to server
     ws.current.send(JSON.stringify({ message: inputMessage }));
-    
-    // DON'T create placeholder - let first chunk create the assistant message
-    // This prevents duplicate messages and handles streaming correctly
     
     // Clear input
     setInputMessage('');
