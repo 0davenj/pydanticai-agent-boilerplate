@@ -1,6 +1,6 @@
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
-pydantic-ai-slim[openai,anthropic,mcp]==1.14.1
+pydantic-ai-slim[openai,anthropic,mcp,fastmcp]==1.14.1
 openai>=1.59.6
 anthropic>=0.45.2
 redis==5.2.1
