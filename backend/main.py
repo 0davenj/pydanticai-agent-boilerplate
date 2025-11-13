@@ -48,6 +48,7 @@ redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
 # Session chat history storage (last 10 messages per session)
 session_chat_history: Dict[str, List] = {}
+session_tool_calls: Dict[str, List] = {}
 MAX_CHAT_HISTORY = 10
 
 def add_to_chat_history(session_id: str, role: str, content: str):
