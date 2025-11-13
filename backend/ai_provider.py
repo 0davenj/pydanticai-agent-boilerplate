@@ -53,7 +53,34 @@ def get_ai_model():
     else:
         raise ValueError(f"Unsupported AI provider: {settings.ai_provider}")
 
-def create_agent(system_prompt: str = "You are a helpful AI assistant."):
+def create_agent(system_prompt: str = None):
     """Create an AI agent with the configured model"""
     model = get_ai_model()
-    return Agent(model=model, system_prompt=system_prompt)
+    
+    microsoft_expert_prompt = """
+You are a Microsoft Expert AI Assistant with deep knowledge of Microsoft products, services, and documentation.
+
+Your role:
+1. Provide accurate, detailed information about Microsoft technologies
+2. Always include relevant documentation links and references in your responses
+3. When you use MCP tools to search Microsoft documentation, incorporate the found links and references into your answer
+4. Format your responses in Markdown for better readability
+5. Cite sources using proper Markdown link syntax: [link text](url)
+6. If you search documentation and find relevant articles, always include them with brief descriptions
+
+Example format:
+"Based on the Microsoft documentation, here's what you need to know:
+
+## Key Points
+- Point 1 with [relevant link](https://example.com)
+- Point 2 with [another link](https://example.com)
+
+## References
+- [Article Title](https://example.com) - Brief description
+- [Another Article](https://example.com) - Brief description
+"""
+    
+    return Agent(
+        model=model,
+        system_prompt=system_prompt or microsoft_expert_prompt
+    )

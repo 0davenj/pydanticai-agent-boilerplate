@@ -47,7 +47,13 @@ class MCPClient:
             
             # Check if response has content
             if not response.content:
-                logger.info(f"MCP endpoint returned empty response (200 OK but no content): {self.base_url}")
+                logger.info(f"MCP endpoint returned empty response (200 OK but no content) - this is normal for some MCP implementations: {self.base_url}")
+                return []
+            
+            # Check content type
+            content_type = response.headers.get('content-type', '')
+            if 'application/json' not in content_type:
+                logger.info(f"MCP endpoint returned non-JSON content type: {content_type}")
                 return []
             
             result = response.json()

@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './App.css';
 
 function App() {
@@ -149,7 +151,9 @@ function App() {
           {messages.map((message, index) => (
             <div key={index} className={`message ${message.role}`}>
               <div className="message-content">
-                {message.content}
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {message.content}
+                </ReactMarkdown>
                 {message.role === 'assistant' && !message.done && (
                   <span className="typing-indicator">▌</span>
                 )}
