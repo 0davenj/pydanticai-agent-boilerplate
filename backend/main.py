@@ -47,8 +47,86 @@ security = HTTPBearer(auto_error=False)
 # Redis connection
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
-# AI Agent
-agent = create_agent(system_prompt="You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools. You are always to provide the links of your tool usage.")
+# Import Tool from pydantic_ai
+from pydantic_ai import Tool
+
+# Define MCP tools for the agent
+async def search_microsoft_learn(query: str) -> str:
+    """
+    Search Microsoft Learn documentation for information.
+    
+    Args:
+        query: The search query to find relevant Microsoft Learn documentation
+        
+    Returns:
+        Relevant documentation content and links
+    """
+    if not mcp_client.is_configured():
+        return "MCP not configured. Please check your MCP settings."
+    
+    try:
+        logger.info(f"Calling MCP tool: search_microsoft_learn with query: {query}")
+        result = await mcp_client.call_tool("search_microsoft_learn", {"query": query})
+        logger.info(f"MCP tool returned: {result}")
+        
+        if isinstance(result, dict) and "result" in result:
+            return result["result"]
+        return str(result)
+    except Exception as e:
+        logger.error(f"Error calling search_microsoft_learn: {e}")
+        return f"Error searching documentation: {str(e)}"
+
+async def get_microsoft_learn_article(url: str) -> str:
+    """
+    Get the content of a specific Microsoft Learn article.
+    
+    Args:
+        url: The URL of the Microsoft Learn article
+        
+    Returns:
+        The article content and key information
+    """
+    if not mcp_client.is_configured():
+        return "MCP not configured. Please check your MCP settings."
+    
+    try:
+        logger.info(f"Calling MCP tool: get_microsoft_learn_article with url: {url}")
+        result = await mcp_client.call_tool("get_article", {"url": url})
+        logger.info(f"MCP tool returned: {result}")
+        
+        if isinstance(result, dict) and "result" in result:
+            return result["result"]
+        return str(result)
+    except Exception as e:
+        logger.error(f"Error calling get_microsoft_learn_article: {e}")
+        return f"Error getting article: {str(e)}"
+
+# Create tool instances
+search_tool = Tool(search_microsoft_learn)
+article_tool = Tool(get_microsoft_learn_article)
+
+# Create agent with MCP tools
+agent = create_agent(
+    system_prompt="""You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools.
+
+IMPORTANT: Always use the search_microsoft_learn tool when:
+- The user asks about Microsoft products, services, or technologies
+- You need to find specific documentation or articles
+- The question requires up-to-date technical information
+- You're unsure about Microsoft-specific details
+
+After using the tool, provide a comprehensive answer with:
+1. The information found
+2. Relevant links to the documentation
+3. Any important notes or caveats
+
+Your tools are:
+- search_microsoft_learn: Search for documentation by query
+- get_microsoft_learn_article: Get specific article content by URL
+
+Always cite your sources and provide links.""",
+    tools=[search_tool, article_tool]
+)
 
 # Store tool calls for each session
 session_tool_calls = {}
