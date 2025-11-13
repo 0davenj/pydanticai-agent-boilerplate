@@ -176,7 +176,7 @@ function App() {
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Microsoft Expert Agent</h1>
+        <h1>Microsoft Expert Agent by Opteia</h1>
         <div className={`connection-status ${isConnected && isAuthenticated ? 'connected' : 'disconnected'}`}>
           {connectionStatus}
         </div>
@@ -186,7 +186,8 @@ function App() {
         <div className="messages">
           {messages.length === 0 && (
             <div className="welcome-message">
-              <p>Welcome to Microsoft Expert Agent by Opteia! Your session is ready.</p>
+              <p>Welcome to Microsoft Expert Agent by Opteia!</p>
+              <p> Your session is ready.</p>
               <p>Ask me anything...</p>
             </div>
           )}
