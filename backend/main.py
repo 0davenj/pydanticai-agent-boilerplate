@@ -1,4 +1,6 @@
 from typing import Optional
+import os
+import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
@@ -189,12 +191,6 @@ async def websocket_endpoint(websocket: WebSocket):
         # Initialize tool calls storage for this session
         session_tool_calls[session_id] = []
         
-        # DEBUG: Log current settings
-        logger.info(f"=== AUTH DEBUG ===")
-        logger.info(f"AI_PROVIDER env var: {os.getenv('AI_PROVIDER')}")
-        logger.info(f"settings.ai_provider: {settings.ai_provider}")
-        logger.info(f"All settings: {settings.__dict__}")
-        
         # Session is valid, proceed with chat
         from config import get_model_name
         await websocket.send_json({
@@ -204,6 +200,9 @@ async def websocket_endpoint(websocket: WebSocket):
             "model_name": get_model_name()
         })
         logger.info(f"WebSocket authenticated for session: {session_id}")
+        
+        # Log provider info for debugging
+        logger.info(f"Provider: {settings.ai_provider}, Model: {get_model_name()}")
         
         async for data in websocket.iter_json():
             try:
