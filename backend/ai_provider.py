@@ -57,8 +57,8 @@ def create_agent(system_prompt: str = None, toolsets: list = None, memory_contex
     """Create an AI agent with the configured model"""
     model = get_ai_model()
     
-    microsoft_expert_prompt = f"""
-You are a Microsoft Expert AI Assistant with deep knowledge of Microsoft products, services, and documentation.
+    # Base prompt template
+    base_prompt = """You are a Microsoft Expert AI Assistant with deep knowledge of Microsoft products, services, and documentation.
 
 Your role:
 1. Provide accurate, detailed information about Microsoft technologies
@@ -75,8 +75,6 @@ Your role:
 6. If you search documentation and find relevant articles, always include them with brief descriptions
 7. Remember context from previous messages when relevant
 
-{memory_context if memory_context else ""}
-
 Example format:
 "Based on the Microsoft documentation, here's what you need to know:
 
@@ -91,8 +89,18 @@ Example format:
 **Always format your response in clear, readable Markdown.**"
 """
     
+    # Combine base prompt with memory context and any custom system prompt
+    final_prompt = base_prompt
+    
+    if memory_context:
+        final_prompt += f"\n\n## Previous Conversation Context:\n{memory_context}\n\nPlease use this context to maintain continuity in our conversation."
+    
+    if system_prompt:
+        # If custom system prompt is provided, prepend it to the base prompt
+        final_prompt = system_prompt + "\n\n" + final_prompt
+    
     return Agent(
         model=model,
-        system_prompt=system_prompt or microsoft_expert_prompt,
+        system_prompt=final_prompt,
         toolsets=toolsets or []
     )

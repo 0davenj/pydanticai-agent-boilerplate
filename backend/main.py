@@ -76,7 +76,7 @@ def get_chat_history_context(session_id: str) -> str:
     
     for msg in history:
         role = "User" if msg["role"] == "user" else "Assistant"
-        content = msg["content"][:200] + "..." if len(msg["content"]) > 200 else msg["content"]
+        content = msg["content"][:300] + "..." if len(msg["content"]) > 300 else msg["content"]
         context_lines.append(f"{role}: {content}")
     
     return "\n".join(context_lines)
@@ -234,11 +234,40 @@ async def login():
             json.dumps(session_data)
         )
         
+        # Initialize empty chat history for this session
+        if session_id not in session_chat_history:
+            session_chat_history[session_id] = []
+        
         logger.info(f"New session created: {session_id}")
         return {"session_id": session_id, "message": "Authentication successful"}
     except Exception as e:
         logger.error(f"Session creation error: {e}")
         raise HTTPException(status_code=500, detail="Failed to create session")
+
+@app.get("/debug/session/{session_id}")
+async def debug_session(session_id: str):
+    """Debug endpoint to check session chat history"""
+    try:
+        # Check if session exists in Redis
+        session_key = f"session:{session_id}"
+        session_data = await redis_client.get(session_key)
+        
+        if not session_data:
+            return {"error": "Session not found"}
+        
+        # Get chat history
+        chat_history = session_chat_history.get(session_id, [])
+        
+        return {
+            "session_id": session_id,
+            "redis_data": json.loads(session_data),
+            "chat_history": chat_history,
+            "chat_history_length": len(chat_history),
+            "memory_context": get_chat_history_context(session_id)
+        }
+    except Exception as e:
+        logger.error(f"Debug session error: {e}")
+        return {"error": str(e)}
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -302,6 +331,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 
                 # Get chat history context for memory
                 memory_context = get_chat_history_context(session_id)
+                
+                # Log memory context for debugging
+                if memory_context:
+                    logger.info(f"Memory context for session {session_id}: {memory_context[:200]}...")
+                else:
+                    logger.info(f"No memory context for session {session_id}")
                 
                 # Create a new agent with memory context
                 memory_agent = create_agent(
@@ -378,6 +413,7 @@ If the question is NOT Microsoft-related, you can answer normally without using 
                 # Add assistant response to chat history
                 if full_response:
                     add_to_chat_history(session_id, "assistant", full_response)
+                    logger.info(f"Added assistant response to chat history for session {session_id}")
                 
                 # Try to extract sources from MCP tool responses
                 sources_found = False
