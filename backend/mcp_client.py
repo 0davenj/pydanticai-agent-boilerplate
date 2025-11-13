@@ -1,6 +1,7 @@
 import httpx
 from typing import Optional, Dict, Any, List
 from config import settings
+from logger import logger
 
 class MCPClient:
     def __init__(self):
