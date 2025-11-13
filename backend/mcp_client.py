@@ -44,6 +44,12 @@ class MCPClient:
             }
             response = await self.client.post("/", json=json_rpc_request)
             response.raise_for_status()
+            
+            # Check if response has content
+            if not response.content:
+                logger.info(f"MCP endpoint returned empty response (200 OK but no content): {self.base_url}")
+                return []
+            
             result = response.json()
             
             # Extract tools from JSON-RPC response

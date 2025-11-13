@@ -203,9 +203,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 # Stream response from agent
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
+                        # Debug logging
+                        logger.debug(f"Chunk type: {type(chunk)}, value: {chunk}")
+                        
+                        # Handle both object-style and string-style chunks
+                        if hasattr(chunk, 'text'):
+                            content = chunk.text
+                        elif hasattr(chunk, 'content'):
+                            content = chunk.content
+                        elif hasattr(chunk, 'data'):
+                            content = chunk.data
+                        else:
+                            # If it's already a string or needs to be converted
+                            content = str(chunk)
+                        
                         await websocket.send_json({
                             "type": "chunk",
-                            "content": chunk.text
+                            "content": content
                         })
                 
                 await websocket.send_json({"type": "done"})
