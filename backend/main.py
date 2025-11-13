@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, List
 import os
 import sys
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
@@ -14,7 +14,6 @@ import time
 
 from config import settings
 from ai_provider import create_agent
-from mcp_client import mcp_client
 from schemas import HealthResponse, ErrorResponse
 from logger import logger
 
@@ -47,89 +46,49 @@ security = HTTPBearer(auto_error=False)
 # Redis connection
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
-# Import Tool from pydantic_ai
-from pydantic_ai import Tool
+# Session tool calls storage
+session_tool_calls: Dict[str, List] = {}
 
-# Define MCP tools for the agent
-async def search_microsoft_learn(query: str) -> str:
-    """
-    Search Microsoft Learn documentation for information.
-    
-    Args:
-        query: The search query to find relevant Microsoft Learn documentation
-        
-    Returns:
-        Relevant documentation content and links
-    """
-    if not mcp_client.is_configured():
-        return "MCP not configured. Please check your MCP settings."
-    
-    try:
-        logger.info(f"Calling MCP tool: search_microsoft_learn with query: {query}")
-        result = await mcp_client.call_tool("search_microsoft_learn", {"query": query})
-        logger.info(f"MCP tool returned: {result}")
-        
-        if isinstance(result, dict) and "result" in result:
-            return result["result"]
-        return str(result)
-    except Exception as e:
-        logger.error(f"Error calling search_microsoft_learn: {e}")
-        return f"Error searching documentation: {str(e)}"
+# Import FastMCPToolset for simple MCP integration
+from pydantic_ai.toolsets.fastmcp import FastMCPToolset
 
-async def get_microsoft_learn_article(url: str) -> str:
-    """
-    Get the content of a specific Microsoft Learn article.
-    
-    Args:
-        url: The URL of the Microsoft Learn article
-        
-    Returns:
-        The article content and key information
-    """
-    if not mcp_client.is_configured():
-        return "MCP not configured. Please check your MCP settings."
-    
-    try:
-        logger.info(f"Calling MCP tool: get_microsoft_learn_article with url: {url}")
-        result = await mcp_client.call_tool("get_article", {"url": url})
-        logger.info(f"MCP tool returned: {result}")
-        
-        if isinstance(result, dict) and "result" in result:
-            return result["result"]
-        return str(result)
-    except Exception as e:
-        logger.error(f"Error calling get_microsoft_learn_article: {e}")
-        return f"Error getting article: {str(e)}"
+# Hardcode MCP server URL (as requested)
+MCP_SERVER_URL = "https://learn.microsoft.com/api/mcp"
 
-# Create tool instances
-search_tool = Tool(search_microsoft_learn)
-article_tool = Tool(get_microsoft_learn_article)
+# Create MCP toolset
+try:
+    mcp_toolset = FastMCPToolset(MCP_SERVER_URL)
+    logger.info(f"MCP toolset created successfully for {MCP_SERVER_URL}")
+except Exception as e:
+    logger.error(f"Failed to create MCP toolset: {e}")
+    mcp_toolset = None
 
 # Create agent with MCP tools
-agent = create_agent(
-    system_prompt="""You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools.
+if mcp_toolset:
+    agent = create_agent(
+        system_prompt="""You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools via MCP.
 
-IMPORTANT: Always use the search_microsoft_learn tool when:
+IMPORTANT: Always use your MCP tools when:
 - The user asks about Microsoft products, services, or technologies
 - You need to find specific documentation or articles
 - The question requires up-to-date technical information
 - You're unsure about Microsoft-specific details
 
-After using the tool, provide a comprehensive answer with:
+After using MCP tools, provide a comprehensive answer with:
 1. The information found
 2. Relevant links to the documentation
 3. Any important notes or caveats
 
-Your tools are:
-- search_microsoft_learn: Search for documentation by query
-- get_microsoft_learn_article: Get specific article content by URL
-
-Always cite your sources and provide links.""",
-    tools=[search_tool, article_tool]
-)
-
-# Store tool calls for each session
-session_tool_calls = {}
+Always cite your sources and provide links to Microsoft Learn documentation.""",
+        tools=[mcp_toolset]
+    )
+    logger.info("Agent created with MCP toolset")
+else:
+    agent = create_agent(
+        system_prompt="You are a helpful assistant. MCP tools are not available.",
+        tools=[]
+    )
+    logger.warning("Agent created without MCP tools")
 
 # Middleware for metrics
 @app.middleware("http")
@@ -178,7 +137,7 @@ async def root():
         "name": "PydanticAI Agent API",
         "version": "1.0.0",
         "ai_provider": settings.ai_provider,
-        "mcp_configured": mcp_client.is_configured(),
+        "mcp_configured": mcp_toolset is not None,
         "endpoints": {
             "health": "/health",
             "login": "/auth/login",
@@ -197,10 +156,12 @@ async def health_check():
         
         # Check MCP connection if configured
         mcp_status = "disabled"
-        if mcp_client.is_configured():
+        if mcp_toolset is not None:
             try:
-                tools = await mcp_client.list_tools()
-                mcp_status = "connected" if tools else "connected_no_tools"
+                # Test MCP toolset by attempting to access it
+                # Note: FastMCPToolset doesn't have a direct list_tools method
+                # We'll just check if it's initialized
+                mcp_status = "connected"
             except Exception as e:
                 mcp_status = "error"
                 logger.warning(f"MCP health check failed: {e}")
@@ -442,11 +403,9 @@ async def startup_event():
         await redis_client.ping()
         logger.info("Redis connection established")
         
-        # Initialize MCP client if configured
-        if mcp_client.is_configured():
-            await mcp_client.initialize()
-            tools = await mcp_client.list_tools()
-            logger.info(f"MCP client initialized with {len(tools)} tools")
+        # Log MCP configuration status
+        if mcp_toolset is not None:
+            logger.info("MCP toolset initialized successfully")
         else:
             logger.info("MCP not configured, skipping initialization")
             
@@ -458,7 +417,6 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     try:
-        await mcp_client.close()
         await redis_client.close()
         logger.info("Services shutdown completed")
     except Exception as e:

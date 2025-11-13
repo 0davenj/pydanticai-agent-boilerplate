@@ -109,6 +109,19 @@ function App() {
           }
           return prev;
         });
+      } else if (data.type === 'sources') {
+        console.log(`Received sources: "${data.content}"`);
+        
+        // Add sources as a separate message
+        setMessages(prevMessages => [
+          ...prevMessages,
+          {
+            role: 'sources',
+            content: data.content,
+            done: true,
+            response_id: data.response_id
+          }
+        ]);
       } else if (data.type === 'error') {
         console.error('Error from server:', data.message);
         setConnectionStatus(`Error: ${data.message}`);
@@ -211,7 +224,8 @@ function App() {
       </main>
       
       <footer className="App-footer">
-        <p>AI Provider: <strong>{process.env.REACT_APP_AI_PROVIDER || 'Azure'}</strong></p>
+        <p>AI Provider: <strong>{aiProvider}</strong></p>
+        <p>Model: <strong>{modelName}</strong></p>
         <p>Session: <code>{sessionId ? `${sessionId.substring(0, 8)}...` : 'Not established'}</code></p>
       </footer>
     </div>
