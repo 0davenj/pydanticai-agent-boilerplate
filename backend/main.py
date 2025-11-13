@@ -80,13 +80,13 @@ After using MCP tools, provide a comprehensive answer with:
 3. Any important notes or caveats
 
 Always cite your sources and provide links to Microsoft Learn documentation.""",
-        tools=[mcp_toolset]
+        toolsets=[mcp_toolset]
     )
     logger.info("Agent created with MCP toolset")
 else:
     agent = create_agent(
         system_prompt="You are a helpful assistant. MCP tools are not available.",
-        tools=[]
+        toolsets=[]
     )
     logger.warning("Agent created without MCP tools")
 

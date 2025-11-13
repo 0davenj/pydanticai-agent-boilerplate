@@ -53,7 +53,7 @@ def get_ai_model():
     else:
         raise ValueError(f"Unsupported AI provider: {settings.ai_provider}")
 
-def create_agent(system_prompt: str = None, tools: list = None):
+def create_agent(system_prompt: str = None, toolsets: list = None):
     """Create an AI agent with the configured model"""
     model = get_ai_model()
     
@@ -83,5 +83,5 @@ Example format:
     return Agent(
         model=model,
         system_prompt=system_prompt or microsoft_expert_prompt,
-        tools=tools or []
+        toolsets=toolsets or []
     )
