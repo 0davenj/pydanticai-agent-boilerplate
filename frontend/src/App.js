@@ -193,7 +193,14 @@ function App() {
           {messages.map((message, index) => (
             <div key={index} className={`message ${message.role}`}>
               <div className="message-content">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    a: ({ node, ...props }) => (
+                      <a {...props} target="_blank" rel="noopener noreferrer" />
+                    )
+                  }}
+                >
                   {message.content}
                 </ReactMarkdown>
                 {message.role === 'assistant' && !message.done && (
