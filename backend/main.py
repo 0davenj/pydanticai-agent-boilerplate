@@ -46,7 +46,7 @@ security = HTTPBearer(auto_error=False)
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
 # AI Agent
-agent = create_agent(system_prompt="You are a helpful AI assistant with access to various tools.")
+agent = create_agent(system_prompt="You are an Expert Microsoft assistant with access to Microsoft Learn knowledge base tools.")
 
 # Middleware for metrics
 @app.middleware("http")
@@ -184,10 +184,12 @@ async def websocket_endpoint(websocket: WebSocket):
         await redis_client.setex(session_key, 3600, json.dumps(session_data))
         
         # Session is valid, proceed with chat
+        from config import get_model_name
         await websocket.send_json({
             "type": "auth_success",
             "message": "Authenticated successfully",
-            "ai_provider": settings.ai_provider
+            "ai_provider": settings.ai_provider,
+            "model_name": get_model_name()
         })
         logger.info(f"WebSocket authenticated for session: {session_id}")
         
@@ -204,11 +206,10 @@ async def websocket_endpoint(websocket: WebSocket):
                     "message_length": len(message)
                 })
                 
-                # Stream response from agent with sources tracking
+                # Stream response from agent - simplified approach first
                 chunk_count = 0
                 response_id = str(uuid.uuid4())
                 previous_content = ""  # Track previous content to extract delta
-                all_sources = []  # Track all MCP sources from the conversation
                 
                 async with agent.run_stream(message) as result:
                     async for chunk in result.stream():
@@ -248,39 +249,48 @@ async def websocket_endpoint(websocket: WebSocket):
                                 "response_id": response_id
                             })
                 
-                # After streaming is complete, check for sources in the final result
-                try:
-                    # Get the final result to extract sources
-                    final_result = await result.get_data()
-                    
-                    # Extract sources from the result
-                    result_sources = []
-                    if hasattr(final_result, 'sources') and final_result.sources:
-                        result_sources = final_result.sources
-                    elif hasattr(result, 'sources') and result.sources:
-                        result_sources = result.sources
-                    
-                    # Add to our collection of sources
-                    if result_sources:
-                        all_sources.extend(result_sources)
-                    
-                    # Send sources if any were found
-                    if all_sources:
-                        # Deduplicate sources
-                        unique_sources = list(set(all_sources))
-                        sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {source}" for source in unique_sources])
-                        
-                        await websocket.send_json({
-                            "type": "sources",
-                            "content": sources_text,
-                            "chunk_id": chunk_count + 1,
-                            "response_id": response_id
-                        })
-                except Exception as e:
-                    logger.debug(f"No sources to extract or error extracting sources: {e}")
-                
                 # Send completion message
                 await websocket.send_json({"type": "done"})
+                
+                # Try to extract sources after streaming (debug version)
+                try:
+                    logger.info("Attempting to extract sources from result...")
+                    logger.info(f"Result type: {type(result)}")
+                    logger.info(f"Result attributes: {dir(result)}")
+                    
+                    # Check if result has get_data method
+                    if hasattr(result, 'get_data'):
+                        final_data = await result.get_data()
+                        logger.info(f"Final data type: {type(final_data)}")
+                        logger.info(f"Final data attributes: {dir(final_data)}")
+                        
+                        # Look for sources in various possible locations
+                        sources = None
+                        if hasattr(final_data, 'sources'):
+                            sources = final_data.sources
+                        elif hasattr(result, 'sources'):
+                            sources = result.sources
+                        elif hasattr(final_data, 'tool_calls'):
+                            sources = final_data.tool_calls
+                        
+                        if sources:
+                            logger.info(f"Found sources: {sources}")
+                            sources_text = "\n\n**Sources:**\n" + "\n".join([f"- {str(source)}" for source in sources])
+                            
+                            await websocket.send_json({
+                                "type": "sources",
+                                "content": sources_text,
+                                "chunk_id": chunk_count + 1,
+                                "response_id": response_id
+                            })
+                        else:
+                            logger.info("No sources found in result")
+                    else:
+                        logger.info("Result does not have get_data method")
+                        
+                except Exception as e:
+                    logger.error(f"Error extracting sources: {e}")
+                    logger.error(f"Error details: {str(e)}")
                 
                 await websocket.send_json({"type": "done"})
                 logger.info(f"Message processed successfully for session {session_id}")

@@ -39,3 +39,16 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+def get_model_name():
+    """Get the current model name based on AI provider"""
+    if settings.ai_provider == "azure":
+        return settings.azure_openai_deployment
+    elif settings.ai_provider == "openrouter":
+        return settings.openrouter_model
+    elif settings.ai_provider == "openai":
+        return settings.openai_model
+    elif settings.ai_provider == "anthropic":
+        return settings.anthropic_model
+    else:
+        return "unknown"
